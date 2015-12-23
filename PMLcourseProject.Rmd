@@ -1,0 +1,83 @@
+---
+title: "PML Course Project"
+author: "K.E.S. Peters"
+date: "22 december 2015"
+output: html_document
+---
+
+## Summary
+This report shows how to create a random forest model to predict the manner in which exercises are performed based on accelerometer data. The model proved to have a low out of sample error, however due to random forests being a 'black box' approach it is hard to understand the underlying decision processes of the model structure.
+
+## Assignment Introduction
+*Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).*^1^  
+As stated in the introductory text, the goal is to predict the manner in which the participants performed their exercices (the "classe" variable in the training set). To do so, data was preprocessed and split into a training and testing set. The training set was used to build a random forest model whereas the testing set was used to cross-validate the random forest model.
+
+## Settings and Libraries
+The following libraries and settings were used to build a random forest model.
+```{r, message=FALSE, warning=FALSE}
+setwd("P:/MachineLearning")
+library(caret) 
+library(parallel) # parallel and doParallel allow the use of multiple processor cores to execute the script and thus reduce computation times
+library(doParallel)
+
+cluster <- makeCluster(detectCores() -1) # assign all but 1 core to execute computations
+registerDoParallel(cluster)
+
+set.seed(123) # seed is set to get reproducible results
+```
+
+## Getting and Cleaning Data
+
+```{r}
+#load data
+if(!file.exists("dataWLE.csv")){ # if file already exists in cd, skip to reading csv
+    url1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+    download.file(url1, destfile="dataWLE.csv")
+}
+Data <- read.csv("dataWLE.csv", na.strings = c("NA", "#DIV/0!", ""))
+
+#load cases to be predicted
+if(!file.exists("casesWLE.csv")){
+    url2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+    download.file(url2, destfile="casesWLE.csv")
+}
+Cases <- read.csv("casesWLE.csv", na.strings = c("NA", "#DIV/0!", ""))
+```
+
+Upon inspecting the data with `str` and `summary`, it became apparant that part of the columns held mainly NA values. Columns with more than 95% NA values were removed from the data frame to reduce training times of the algorithm.
+```{r}
+# remove colums with more than 95% NA
+Data2 <- Data[ , colSums(is.na(Data)) <= nrow(Data)*0.95]
+Cases2 <- Cases[ , colSums(is.na(Cases)) <= nrow(Cases)*0.95]
+```
+
+Next the data was split into a training and testing set.
+```{r}
+# split data into training and testing set for crossvalidation
+inTrain <- createDataPartition(Data2$classe, p = 0.7, list = FALSE)
+Training <- Data2[inTrain, ]
+Testing <- Data2[-inTrain, ]
+```
+
+## Fit random forest model
+The training set was used to fit a random forest model. Subject and sensor data were considered relevant variables for model prediction, other variables were excluded.
+```{r fitRF, cache=TRUE, message=FALSE, warning=FALSE}
+
+fit <- train(Training$classe ~ . -X -raw_timestamp_part_1 -raw_timestamp_part_2 
+             -cvtd_timestamp -new_window -num_window, data=Training, method="rf") 
+```
+
+## Out of sample error
+Next the model is cross-validated by predicting the manner in which participants performed their exercises in the test set.
+```{r, message=FALSE, warning=FALSE}
+ValidateTest <- predict(fit, newdata = Testing)
+confusionMatrix(ValidateTest, Testing$classe)
+```
+The out of sample error of the random forest model is `1 - 0.9927 = ``r 1-0.9927`, which is quite good.  
+
+## Concluding remarks
+Eventhough accuracy of the random forest model is quite good, interpretation of how to model functions is quite hard (as random forests are a black box). If a better understanding of the decision process is desired a CART model is suggested.
+
+## References
+^1^ Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. *Qualitative Activity Recognition of Weight Lifting Exercises.* Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13). Stuttgart, Germany: ACM SIGCHI, 2013.  
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3uwWAwKVs
